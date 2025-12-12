@@ -6,6 +6,11 @@ and a visualization explorer to interact with the graph structure.
 """
 
 import os
+import sys
+
+# Add project root to Python path for Streamlit compatibility
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
