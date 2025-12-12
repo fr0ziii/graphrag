@@ -43,19 +43,59 @@ Knowledge graphs capture **entities** (people, concepts, events) and their **rel
 
 ### Prerequisites
 
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) package manager
+- Python 3.10+ (for local development)
 - Docker and Docker Compose
 - OpenAI API key
 
-### Step 1: Clone the Repository
+---
+
+### 🐳 Docker Quick Start (Recommended)
+
+Run the entire stack with a single command—no local Python installation required:
+
+```bash
+# 1. Clone and configure
+git clone https://github.com/yourusername/simple-graphrag-demo.git
+cd simple-graphrag-demo
+cp .env.example .env
+# Edit .env and add your OPENAI_API_KEY
+
+# 2. Launch everything
+docker compose up
+```
+
+This will:
+1. Start Neo4j and wait for it to be healthy
+2. Build and start the Streamlit app
+3. App available at http://localhost:8501
+
+**First-time data ingestion:**
+```bash
+docker compose exec app python -m src.ingestion
+```
+
+**Useful commands:**
+```bash
+docker compose up -d          # Run in background
+docker compose logs -f app    # View app logs
+docker compose down           # Stop all services
+docker compose down -v        # Stop and remove volumes
+```
+
+---
+
+### 🐍 Local Development Setup
+
+For development with hot-reloading and direct code access:
+
+#### Step 1: Clone the Repository
 
 ```bash
 git clone https://github.com/yourusername/simple-graphrag-demo.git
 cd simple-graphrag-demo
 ```
 
-### Step 2: Set Up Environment Variables
+#### Step 2: Set Up Environment Variables
 
 ```bash
 cp .env.example .env
@@ -71,15 +111,15 @@ cp .env.example .env
 | `NEO4J_USERNAME` | Neo4j username | `neo4j` |
 | `NEO4J_PASSWORD` | Neo4j password | `password` |
 
-### Step 3: Start Neo4j
+#### Step 3: Start Neo4j
 
 ```bash
-docker compose up -d
+docker compose up neo4j -d
 ```
 
 Wait ~30 seconds for Neo4j to fully start. You can check the status at [http://localhost:7474](http://localhost:7474).
 
-### Step 4: Install Dependencies
+#### Step 4: Install Dependencies
 
 Using [uv](https://docs.astral.sh/uv/) for fast, reliable dependency management:
 
@@ -92,12 +132,12 @@ Or with pip:
 pip install -r requirements.txt
 ```
 
-### Step 5: Run Data Ingestion
+#### Step 5: Run Data Ingestion
 
 This step reads documents from `data/` and builds the knowledge graph in Neo4j:
 
 ```bash
-uv run python src/ingestion.py
+uv run python -m src.ingestion
 ```
 
 **Expected output:**
@@ -105,13 +145,12 @@ uv run python src/ingestion.py
 ============================================================
 GraphRAG Ingestion Pipeline
 ============================================================
-Loading documents from data...
-Loaded 1 document(s)
+Loading documents from data...\nLoaded 1 document(s)
 Building Knowledge Graph Index (this may take a while)...
 ✅ Ingestion complete! Knowledge graph is ready in Neo4j.
 ```
 
-### Step 6: Launch the Application
+#### Step 6: Launch the Application
 
 ```bash
 uv run streamlit run src/app.py
@@ -134,10 +173,11 @@ simple-graphrag-demo/
 │   ├── visualizer.py          # Neo4j to Pyvis visualization
 │   └── app.py                 # Streamlit application
 │
+├── .dockerignore              # Docker build exclusions
 ├── .env.example               # Environment template
-├── docker-compose.yml         # Neo4j container config
+├── Dockerfile                 # Multi-stage app container
+├── docker-compose.yml         # Full stack orchestration
 ├── pyproject.toml             # uv/pip dependencies
-├── requirements.txt           # Legacy pip dependencies
 └── README.md                  # This file
 ```
 
