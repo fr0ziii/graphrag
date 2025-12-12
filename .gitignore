@@ -81,3 +81,4 @@ data/neo4j/
 *.pyc
 *.pyo
 *.pyd
+uv.lock
