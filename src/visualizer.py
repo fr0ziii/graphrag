@@ -26,18 +26,22 @@ load_dotenv()
 
 def fetch_graph_data(limit: int = 100) -> dict[str, Any]:
     """
-    Fetch nodes and relationships from Neo4j.
+    Fetch nodes and relationships from Neo4j, including GDS-enriched properties.
 
     Args:
         limit: Maximum number of relationships to fetch.
 
     Returns:
-        Dictionary containing nodes and edges data.
+        Dictionary containing nodes and edges data with pageRankScore and communityId.
     """
-    # Cypher query to get nodes and relationships
+    # Cypher query to get nodes, relationships, and analytics properties
     query = """
     MATCH (n)-[r]->(m)
-    RETURN n, r, m
+    RETURN n, r, m,
+           n.pageRankScore AS source_pr,
+           n.communityId AS source_community,
+           m.pageRankScore AS target_pr,
+           m.communityId AS target_community
     LIMIT $limit
     """
 
@@ -48,33 +52,59 @@ def fetch_graph_data(limit: int = 100) -> dict[str, Any]:
         results = execute_query(query, {"limit": limit})
 
         for record in results:
-            # Extract source node
+            # Extract source node with analytics properties
             source = record["n"]
             source_id = str(source.element_id)
+            source_pr = record.get("source_pr")
+            source_community = record.get("source_community")
+
             if source_id not in nodes:
                 # Get node label and name/id property
                 labels = list(source.labels)
                 label = labels[0] if labels else "Node"
                 name = source.get("id", source.get("name", source_id[:8]))
+
+                # Build tooltip with analytics info
+                tooltip = f"{label}: {name}"
+                if source_pr is not None:
+                    tooltip += f"\nPageRank: {source_pr:.4f}"
+                if source_community is not None:
+                    tooltip += f"\nCommunity: {source_community}"
+
                 nodes[source_id] = {
                     "id": source_id,
                     "label": str(name),
-                    "title": f"{label}: {name}",
+                    "title": tooltip,
                     "group": label,
+                    "pageRankScore": source_pr,
+                    "communityId": source_community,
                 }
 
-            # Extract target node
-            target = record["m"]
+            # Extract target node with analytics properties
+            target = record[\"m\"]
             target_id = str(target.element_id)
+            target_pr = record.get(\"target_pr\")
+            target_community = record.get(\"target_community\")
+
             if target_id not in nodes:
                 labels = list(target.labels)
-                label = labels[0] if labels else "Node"
-                name = target.get("id", target.get("name", target_id[:8]))
+                label = labels[0] if labels else \"Node\"
+                name = target.get(\"id\", target.get(\"name\", target_id[:8]))
+
+                # Build tooltip with analytics info
+                tooltip = f\"{label}: {name}\"
+                if target_pr is not None:
+                    tooltip += f\"\\nPageRank: {target_pr:.4f}\"
+                if target_community is not None:
+                    tooltip += f\"\\nCommunity: {target_community}\"
+
                 nodes[target_id] = {
-                    "id": target_id,
-                    "label": str(name),
-                    "title": f"{label}: {name}",
-                    "group": label,
+                    \"id\": target_id,
+                    \"label\": str(name),
+                    \"title\": tooltip,
+                    \"group\": label,
+                    \"pageRankScore\": target_pr,
+                    \"communityId\": target_community,
                 }
 
             # Extract relationship
@@ -102,6 +132,7 @@ def generate_graph_html(
     bgcolor: str = "#0e1117",
     font_color: str = "white",
     limit: int = 100,
+    color_by_community: bool = True,
 ) -> str:
     """
     Generate an interactive HTML visualization of the knowledge graph.
@@ -112,6 +143,7 @@ def generate_graph_html(
         bgcolor: Background color of the graph.
         font_color: Color of node labels.
         limit: Maximum number of relationships to display.
+        color_by_community: If True, color nodes by communityId; else by entity type.
 
     Returns:
         str: HTML string containing the interactive graph visualization.
@@ -199,29 +231,60 @@ def generate_graph_html(
     }
     """)
 
-    # Color palette for different node groups
+    # Color palette for different node groups/communities
     colors = [
         "#ff6b6b", "#4ecdc4", "#45b7d1", "#96ceb4",
         "#ffeaa7", "#dfe6e9", "#fd79a8", "#00b894",
         "#6c5ce7", "#fdcb6e", "#e17055", "#74b9ff",
+        "#a29bfe", "#fab1a0", "#81ecec", "#ffeaa7",
     ]
 
-    # Track groups for color assignment
+    # Track groups/communities for color assignment
     groups = {}
+    communities = {}
     color_index = 0
 
-    # Add nodes
+    # Calculate PageRank range for node sizing
+    pageranks = [n.get("pageRankScore", 0.0) for n in graph_data["nodes"]]
+    max_pagerank = max(pageranks) if pageranks else 1.0
+    min_pagerank = min(pageranks) if pageranks else 0.0
+    pagerank_range = max_pagerank - min_pagerank if max_pagerank > min_pagerank else 1.0
+
+    # Check if any nodes have community data
+    has_community_data = any(
+        n.get("communityId") is not None for n in graph_data["nodes"]
+    )
+
+    # Add nodes with size based on PageRank
     for node in graph_data["nodes"]:
-        group = node.get("group", "default")
-        if group not in groups:
-            groups[group] = colors[color_index % len(colors)]
-            color_index += 1
+        # Calculate node size based on PageRank (scale from 15 to 50)
+        pagerank = node.get("pageRankScore", 0.0)
+        normalized_pagerank = (pagerank - min_pagerank) / pagerank_range if pagerank_range > 0 else 0
+        node_size = 15 + (normalized_pagerank * 35)  # Range: 15-50 pixels
+
+        # Determine color based on community or entity type
+        if color_by_community and has_community_data:
+            community_id = node.get("communityId")
+            if community_id is not None:
+                if community_id not in communities:
+                    communities[community_id] = colors[len(communities) % len(colors)]
+                node_color = communities[community_id]
+            else:
+                node_color = "#888888"  # Gray for nodes without community
+        else:
+            # Fall back to entity type coloring
+            group = node.get("group", "default")
+            if group not in groups:
+                groups[group] = colors[color_index % len(colors)]
+                color_index += 1
+            node_color = groups[group]
 
         net.add_node(
             node["id"],
             label=node["label"],
             title=node.get("title", node["label"]),
-            color=groups[group],
+            color=node_color,
+            size=node_size,
         )
 
     # Add edges

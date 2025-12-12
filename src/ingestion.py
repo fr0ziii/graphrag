@@ -245,6 +245,27 @@ if __name__ == "__main__":
         print("\nVerification queries to run in Neo4j Browser:")
         print("  MATCH (n) RETURN DISTINCT labels(n) AS entity_types")
         print("  MATCH ()-[r]->() RETURN DISTINCT type(r) AS relation_types")
+
+        # Optional: Run graph analytics post-ingestion
+        print("\n" + "-" * 60)
+        run_analytics = input(
+            "Run graph analytics (PageRank + Community Detection)? [y/N]: "
+        )
+        if run_analytics.lower() == "y":
+            print("\nStarting graph analytics pipeline...")
+            from src.analysis import run_analysis
+
+            result = run_analysis()
+            if result.get("status") == "success":
+                print("\n✅ Graph analytics complete!")
+                print(f"   Communities found: {result['louvain']['communities_found']}")
+                print("   Properties written: pageRankScore, communityId")
+            else:
+                print("\n⚠️  Analytics skipped - graph may be empty")
+        else:
+            print("\nSkipping analytics. Run later with:")
+            print("  uv run python -m src.analysis")
+
     except Exception as e:
         print(f"\n❌ Ingestion failed: {e}")
         raise

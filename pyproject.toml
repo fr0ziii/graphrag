@@ -10,9 +10,11 @@ dependencies = [
     "llama-index-llms-openai>=0.2.0",
     "llama-index-embeddings-openai>=0.2.0",
     "neo4j>=5.0.0",
+    "graphdatascience>=1.7",
     "streamlit>=1.28.0",
     "pyvis>=0.3.0",
     "python-dotenv>=1.0.0",
+    "graphdatascience>=1.7.0",
 ]
 
 [tool.uv]
