@@ -25,7 +25,6 @@ SCHEMA ENFORCEMENT STRATEGY:
 import logging
 import re
 from pathlib import Path
-from typing import Literal
 
 from dotenv import load_dotenv
 from llama_index.core import Document, PropertyGraphIndex, SimpleDirectoryReader
@@ -33,6 +32,7 @@ from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai import OpenAI
 
+from src.config import get_entity_literal, get_ontology, get_relation_literal
 from src.database import get_neo4j_property_graph_store
 
 # Configure logging
@@ -41,41 +41,6 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-
-# =============================================================================
-# ONTOLOGY DEFINITION: Fixed Schema for Renewable Energy Domain
-# =============================================================================
-
-# Allowed Entity Types (use uppercase by convention)
-ENTITY_TYPES = Literal[
-    "TECHNOLOGY",
-    "CONCEPT",
-    "LOCATION",
-    "METRIC",
-    "ORGANIZATION",
-    "MATERIAL",
-]
-
-# Allowed Relationship Types
-RELATION_TYPES = Literal[
-    "USES",
-    "PRODUCES",
-    "LOCATED_IN",
-    "AFFECTS",
-    "HAS_METRIC",
-    "DEVELOPED_BY",
-]
-
-# Validation Schema: Maps entity types to their allowed outgoing relationships.
-# This constrains which triplets are valid (e.g., TECHNOLOGY can USES, PRODUCES, etc.)
-VALIDATION_SCHEMA = {
-    "TECHNOLOGY": ["USES", "PRODUCES", "LOCATED_IN", "HAS_METRIC", "DEVELOPED_BY"],
-    "CONCEPT": ["AFFECTS", "USES", "PRODUCES"],
-    "LOCATION": ["LOCATED_IN"],
-    "METRIC": ["HAS_METRIC"],
-    "ORGANIZATION": ["DEVELOPED_BY", "USES", "LOCATED_IN"],
-    "MATERIAL": ["USES", "PRODUCES"],
-}
 
 
 # =============================================================================
@@ -192,17 +157,24 @@ def build_graph_index(
     # Connect to Neo4j PropertyGraphStore (required for PropertyGraphIndex)
     graph_store = get_neo4j_property_graph_store()
 
+    # Load ontology from external configuration
+    ontology = get_ontology()
+
     # Create the schema-enforced extractor
     # strict=True ensures only schema-conforming triplets are extracted
-    logger.info("Configuring SchemaLLMPathExtractor with strict schema enforcement...")
-    logger.info("  Entity types: TECHNOLOGY, CONCEPT, LOCATION, METRIC, ORGANIZATION, MATERIAL")
-    logger.info("  Relation types: USES, PRODUCES, LOCATED_IN, AFFECTS, HAS_METRIC, DEVELOPED_BY")
+    logger.info(
+        "Configuring SchemaLLMPathExtractor for domain '%s' (v%s) with strict schema enforcement...",
+        ontology.domain,
+        ontology.version,
+    )
+    logger.info("  Entity types: %s", ", ".join(ontology.entity_types))
+    logger.info("  Relation types: %s", ", ".join(ontology.relation_types))
 
     kg_extractor = SchemaLLMPathExtractor(
         llm=llm,
-        possible_entities=ENTITY_TYPES,
-        possible_relations=RELATION_TYPES,
-        kg_validation_schema=VALIDATION_SCHEMA,
+        possible_entities=get_entity_literal(ontology),
+        possible_relations=get_relation_literal(ontology),
+        kg_validation_schema=ontology.validation_schema,
         strict=True,  # CRITICAL: Reject triplets outside the schema
         num_workers=num_workers,
         max_triplets_per_chunk=max_triplets_per_chunk,
@@ -230,12 +202,16 @@ def build_graph_index(
 
 if __name__ == "__main__":
     # Run ingestion when executed directly
+    # Load ontology first to display info
+    ontology = get_ontology()
+
     print("=" * 60)
     print("GraphRAG Schema-Driven Ingestion Pipeline")
     print("=" * 60)
-    print("\nOntology:")
-    print("  Entity Types: TECHNOLOGY, CONCEPT, LOCATION, METRIC, ORGANIZATION, MATERIAL")
-    print("  Relation Types: USES, PRODUCES, LOCATED_IN, AFFECTS, HAS_METRIC, DEVELOPED_BY")
+    print(f"\nDomain: {ontology.domain} (v{ontology.version})")
+    print("\nOntology loaded from: config/ontology.yaml")
+    print(f"  Entity Types: {', '.join(ontology.entity_types)}")
+    print(f"  Relation Types: {', '.join(ontology.relation_types)}")
     print("-" * 60)
 
     try:

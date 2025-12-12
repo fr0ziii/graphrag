@@ -1,0 +1,75 @@
+# =============================================================================
+# GraphRAG Ontology Configuration
+# =============================================================================
+# This file defines the knowledge graph schema for the ingestion pipeline.
+# Change this file to adapt to any domain WITHOUT modifying Python code.
+#
+# To switch domains (e.g., from Renewable Energy to Medicine):
+#   1. Update the entity_types, relation_types, and validation_schema
+#   2. Re-run the ingestion: uv run python -m src.ingestion
+# =============================================================================
+
+# Human-readable domain name (for logging and documentation)
+domain: "Renewable Energy"
+
+# Schema version for tracking changes
+version: "1.0"
+
+# =============================================================================
+# Entity Types
+# =============================================================================
+# These define the types of nodes that can exist in the knowledge graph.
+# Use UPPERCASE by convention for consistency with Neo4j labels.
+entity_types:
+  - TECHNOLOGY
+  - CONCEPT
+  - LOCATION
+  - METRIC
+  - ORGANIZATION
+  - MATERIAL
+
+# =============================================================================
+# Relation Types
+# =============================================================================
+# These define the types of edges (relationships) between nodes.
+# Use UPPERCASE with underscores by convention.
+relation_types:
+  - USES
+  - PRODUCES
+  - LOCATED_IN
+  - AFFECTS
+  - HAS_METRIC
+  - DEVELOPED_BY
+
+# =============================================================================
+# Validation Schema
+# =============================================================================
+# Maps each entity type to its allowed outgoing relationships.
+# This constrains which triplets are valid during extraction.
+#
+# Example: TECHNOLOGY can have outgoing edges of type USES, PRODUCES, etc.
+#          but LOCATION can only have LOCATED_IN (typically as a target).
+#
+# Triplets not conforming to this schema will be rejected when strict=True.
+validation_schema:
+  TECHNOLOGY:
+    - USES
+    - PRODUCES
+    - LOCATED_IN
+    - HAS_METRIC
+    - DEVELOPED_BY
+  CONCEPT:
+    - AFFECTS
+    - USES
+    - PRODUCES
+  LOCATION:
+    - LOCATED_IN
+  METRIC:
+    - HAS_METRIC
+  ORGANIZATION:
+    - DEVELOPED_BY
+    - USES
+    - LOCATED_IN
+  MATERIAL:
+    - USES
+    - PRODUCES
