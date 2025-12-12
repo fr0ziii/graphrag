@@ -20,7 +20,7 @@ import os
 from dotenv import load_dotenv
 from graphdatascience import GraphDataScience
 
-from src.database import get_config
+from src.database import GraphDatabaseManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,11 +33,14 @@ load_dotenv()
 GRAPH_NAME = "graphrag_analysis"
 
 
-def get_gds_client() -> GraphDataScience:
+def get_gds_client(db_manager: GraphDatabaseManager) -> GraphDataScience:
     """
     Create and return a Graph Data Science client instance.
 
     Uses the same configuration as the main database module for consistency.
+
+    Args:
+        db_manager: Configured GraphDatabaseManager instance.
 
     Returns:
         GraphDataScience: Connected GDS client instance.
@@ -45,7 +48,7 @@ def get_gds_client() -> GraphDataScience:
     Raises:
         ConnectionError: If unable to connect to Neo4j GDS.
     """
-    config = get_config()
+    config = db_manager.config
 
     if not config.validate():
         raise ValueError(
@@ -204,6 +207,7 @@ def run_louvain(gds: GraphDataScience, G, write_property: str = "communityId"):
 
 
 def run_analysis(
+    db_manager: GraphDatabaseManager | None = None,
     pagerank_property: str = "pageRankScore",
     community_property: str = "communityId",
 ) -> dict:
@@ -219,6 +223,7 @@ def run_analysis(
     6. Cleans up the in-memory projection
 
     Args:
+        db_manager: Configured GraphDatabaseManager instance. If None, creates a new one.
         pagerank_property: Property name for PageRank scores.
         community_property: Property name for community IDs.
 
@@ -229,8 +234,11 @@ def run_analysis(
     logger.info("Starting Graph Enrichment Analysis")
     logger.info("=" * 60)
 
+    if db_manager is None:
+        db_manager = GraphDatabaseManager()
+
     # Initialize GDS client
-    gds = get_gds_client()
+    gds = get_gds_client(db_manager)
 
     try:
         # Step 1: Project graph

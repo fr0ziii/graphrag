@@ -1,16 +1,18 @@
 """
-Configuration Manager for GraphRAG Ontology.
+Configuration Manager for GraphRAG.
 
-This module loads and validates the ontology configuration from an external
-YAML file, enabling domain-agnostic knowledge graph extraction without
-modifying Python code.
+This module provides a centralized configuration system using Pydantic Settings
+and handles the loading of the ontology configuration.
 
 Usage:
-    from src.config import get_ontology
+    from src.config import settings, get_ontology
 
+    # Access settings
+    print(settings.llm.model)
+    print(settings.ingestion.max_triplets_per_chunk)
+
+    # Access ontology
     ontology = get_ontology()
-    print(ontology.entity_types)  # ['TECHNOLOGY', 'CONCEPT', ...]
-    print(ontology.validation_schema)  # {'TECHNOLOGY': ['USES', ...], ...}
 """
 
 import logging
@@ -19,7 +21,8 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -173,11 +176,6 @@ def get_entity_literal(ontology: OntologyConfig) -> type:
 
     Returns:
         A Literal type containing all entity types.
-
-    Example:
-        >>> ontology = get_ontology()
-        >>> EntityType = get_entity_literal(ontology)
-        >>> # EntityType is now Literal["TECHNOLOGY", "CONCEPT", ...]
     """
     return Literal[tuple(ontology.entity_types)]  # type: ignore[valid-type]
 
@@ -191,38 +189,85 @@ def get_relation_literal(ontology: OntologyConfig) -> type:
 
     Returns:
         A Literal type containing all relation types.
-
-    Example:
-        >>> ontology = get_ontology()
-        >>> RelationType = get_relation_literal(ontology)
-        >>> # RelationType is now Literal["USES", "PRODUCES", ...]
     """
     return Literal[tuple(ontology.relation_types)]  # type: ignore[valid-type]
 
 
 # =============================================================================
-# CLI: Test configuration loading when run directly
+# New Configuration System (Pydantic Settings)
 # =============================================================================
+
+
+class LLMConfig(BaseModel):
+    """Configuration for Language Models."""
+
+    model: str = Field(default="gpt-4o-mini", description="OpenAI model identifier")
+    temperature: float = Field(default=0.0, description="Sampling temperature")
+    api_key: SecretStr | None = Field(default=None, description="OpenAI API Key provided implicitly via env")
+    api_base: str | None = Field(default=None, description="Custom API base URL")
+
+
+class EmbeddingConfig(BaseModel):
+    """Configuration for Embedding Models."""
+
+    model: str = Field(default="text-embedding-3-small", description="OpenAI embedding model identifier")
+    dimensions: int | None = Field(default=1536, description="Embedding dimensions")
+
+
+class IngestionConfig(BaseModel):
+    """Configuration for the Ingestion Pipeline."""
+
+    max_triplets_per_chunk: int = Field(default=10, description="Max triplets to extract per chunk")
+    num_workers: int = Field(default=4, description="Parallel workers for extraction")
+    normalize_entities: bool = Field(default=True, description="Whether to normalize entities to title case")
+
+
+class Settings(BaseSettings):
+    """
+    Main Application Settings.
+
+    Loads from environment variables with the prefix 'GRAPHRAG_'.
+    Example: GRAPHRAG_LLM__MODEL="gpt-4" will override settings.llm.model
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="GRAPHRAG_",
+        env_nested_delimiter="__",
+        case_sensitive=False,
+        env_file=".env",
+        extra="ignore",
+    )
+
+    llm: LLMConfig = Field(default_factory=LLMConfig)
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
+
+
+# Singleton settings instance
+settings = Settings()
+
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("GraphRAG Ontology Configuration Loader")
+    print("GraphRAG Configuration")
     print("=" * 60)
+
+    # Print settings (secrets are automatically obscured)
+    print("\n[LLM Settings]")
+    print(f"  Model: {settings.llm.model}")
+    print(f"  Temperature: {settings.llm.temperature}")
+    print(f"  API Base: {settings.llm.api_base}")
+
+    print("\n[Embedding Settings]")
+    print(f"  Model: {settings.embedding.model}")
+
+    print("\n[Ingestion Settings]")
+    print(f"  Max Triplets/Chunk: {settings.ingestion.max_triplets_per_chunk}")
+    print(f"  Workers: {settings.ingestion.num_workers}")
+    print(f"  Normalize Entities: {settings.ingestion.normalize_entities}")
 
     try:
         config = get_ontology()
-        print("\n✅ Successfully loaded ontology configuration!")
-        print(f"\nDomain: {config.domain}")
-        print(f"Version: {config.version}")
-        print(f"\nEntity Types ({len(config.entity_types)}):")
-        for et in config.entity_types:
-            print(f"  - {et}")
-        print(f"\nRelation Types ({len(config.relation_types)}):")
-        for rt in config.relation_types:
-            print(f"  - {rt}")
-        print("\nValidation Schema:")
-        for entity, relations in config.validation_schema.items():
-            print(f"  {entity}: {', '.join(relations)}")
+        print(f"\n[Ontology] Loaded: {config.domain} (v{config.version})")
     except OntologyConfigError as e:
-        print(f"\n❌ Configuration Error:\n{e}")
-        exit(1)
+        print(f"\n[Ontology] Not loaded: {e}")

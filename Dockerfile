@@ -40,11 +40,15 @@ COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy application source code
-COPY --chown=appuser:appgroup src/ ./src/
-COPY --chown=appuser:appgroup pyproject.toml ./
+# SECURITY: Owned by root, read-only for appuser
+COPY src/ ./src/
+COPY pyproject.toml ./
 
 # Create data directory with correct permissions
-RUN mkdir -p /app/data && chown -R appuser:appgroup /app/data
+# SECURITY: Only these directories should be writable by appuser
+RUN mkdir -p /app/data && \
+    chown -R appuser:appgroup /app/data && \
+    chmod 755 /app/data
 
 # Switch to non-root user
 USER appuser

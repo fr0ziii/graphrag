@@ -14,7 +14,7 @@ from typing import Any
 from dotenv import load_dotenv
 from pyvis.network import Network
 
-from src.database import execute_query
+from src.database import GraphDatabaseManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,11 +24,12 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-def fetch_graph_data(limit: int = 100) -> dict[str, Any]:
+def fetch_graph_data(db_manager: GraphDatabaseManager, limit: int = 100) -> dict[str, Any]:
     """
     Fetch nodes and relationships from Neo4j, including GDS-enriched properties.
 
     Args:
+        db_manager: Configured GraphDatabaseManager instance.
         limit: Maximum number of relationships to fetch.
 
     Returns:
@@ -49,7 +50,7 @@ def fetch_graph_data(limit: int = 100) -> dict[str, Any]:
     edges = []
 
     try:
-        results = execute_query(query, {"limit": limit})
+        results = db_manager.execute_query(query, {"limit": limit})
 
         for record in results:
             # Extract source node with analytics properties
@@ -81,30 +82,30 @@ def fetch_graph_data(limit: int = 100) -> dict[str, Any]:
                 }
 
             # Extract target node with analytics properties
-            target = record[\"m\"]
+            target = record["m"]
             target_id = str(target.element_id)
-            target_pr = record.get(\"target_pr\")
-            target_community = record.get(\"target_community\")
+            target_pr = record.get("target_pr")
+            target_community = record.get("target_community")
 
             if target_id not in nodes:
                 labels = list(target.labels)
-                label = labels[0] if labels else \"Node\"
-                name = target.get(\"id\", target.get(\"name\", target_id[:8]))
+                label = labels[0] if labels else "Node"
+                name = target.get("id", target.get("name", target_id[:8]))
 
                 # Build tooltip with analytics info
-                tooltip = f\"{label}: {name}\"
+                tooltip = f"{label}: {name}"
                 if target_pr is not None:
-                    tooltip += f\"\\nPageRank: {target_pr:.4f}\"
+                    tooltip += f"\nPageRank: {target_pr:.4f}"
                 if target_community is not None:
-                    tooltip += f\"\\nCommunity: {target_community}\"
+                    tooltip += f"\nCommunity: {target_community}"
 
                 nodes[target_id] = {
-                    \"id\": target_id,
-                    \"label\": str(name),
-                    \"title\": tooltip,
-                    \"group\": label,
-                    \"pageRankScore\": target_pr,
-                    \"communityId\": target_community,
+                    "id": target_id,
+                    "label": str(name),
+                    "title": tooltip,
+                    "group": label,
+                    "pageRankScore": target_pr,
+                    "communityId": target_community,
                 }
 
             # Extract relationship
@@ -127,6 +128,7 @@ def fetch_graph_data(limit: int = 100) -> dict[str, Any]:
 
 
 def generate_graph_html(
+    db_manager: GraphDatabaseManager | None = None,
     height: str = "600px",
     width: str = "100%",
     bgcolor: str = "#0e1117",
@@ -138,6 +140,7 @@ def generate_graph_html(
     Generate an interactive HTML visualization of the knowledge graph.
 
     Args:
+        db_manager: Configured GraphDatabaseManager instance. If None, creates a new one.
         height: Height of the visualization canvas.
         width: Width of the visualization canvas.
         bgcolor: Background color of the graph.
@@ -148,8 +151,11 @@ def generate_graph_html(
     Returns:
         str: HTML string containing the interactive graph visualization.
     """
+    if db_manager is None:
+        db_manager = GraphDatabaseManager()
+
     # Fetch graph data
-    graph_data = fetch_graph_data(limit=limit)
+    graph_data = fetch_graph_data(db_manager, limit=limit)
 
     if not graph_data["nodes"]:
         return """

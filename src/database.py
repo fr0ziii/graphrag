@@ -1,8 +1,8 @@
 """
 Database connection module for Neo4j.
 
-This module provides a centralized Neo4j connection that can be imported
-and reused across all modules.
+This module provides a centralized GraphDatabaseManager to handle Neo4j connections
+and operations, implementing the Dependency Injection pattern.
 """
 
 import logging
@@ -35,209 +35,191 @@ class Neo4jConfig:
         return all([self.uri, self.username, self.password])
 
 
-# Singleton config instance
-_config = Neo4jConfig()
-
-
-def get_config() -> Neo4jConfig:
-    """Get the Neo4j configuration."""
-    return _config
-
-
-def get_neo4j_driver() -> Driver:
+class GraphDatabaseManager:
     """
-    Create and return a Neo4j driver instance.
+    Manages Neo4j database connections and operations.
 
-    Returns:
-        Driver: Neo4j driver for direct Cypher queries.
-
-    Raises:
-        ValueError: If required environment variables are missing.
-        ConnectionError: If unable to connect to Neo4j.
+    This class encapsulates all database interaction logic, allowing for
+    dependency injection and easier testing.
     """
-    config = get_config()
 
-    if not config.validate():
-        raise ValueError(
-            "Missing required Neo4j environment variables. "
-            "Please set NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD."
-        )
+    def __init__(self, config: Neo4jConfig | None = None):
+        """
+        Initialize the database manager.
 
-    try:
-        driver = GraphDatabase.driver(
-            config.uri,
-            auth=(config.username, config.password)
-        )
-        # Verify connection
-        driver.verify_connectivity()
-        logger.info("Successfully connected to Neo4j at %s", config.uri)
-        return driver
-    except Exception as e:
-        logger.error("Failed to connect to Neo4j: %s", str(e))
-        raise ConnectionError(f"Unable to connect to Neo4j: {str(e)}") from e
+        Args:
+            config: Optional Neo4jConfig instance. If None, created from environment.
+        """
+        self.config = config or Neo4jConfig()
 
+    def get_driver(self) -> Driver:
+        """
+        Create and return a Neo4j driver instance.
 
-def get_neo4j_graph_store() -> Neo4jGraphStore:
-    """
-    Create and return a Neo4j graph store for LlamaIndex.
+        Returns:
+            Driver: Neo4j driver for direct Cypher queries.
 
-    Returns:
-        Neo4jGraphStore: Connected graph store instance.
+        Raises:
+            ValueError: If required environment variables are missing.
+            ConnectionError: If unable to connect to Neo4j.
+        """
+        if not self.config.validate():
+            raise ValueError(
+                "Missing required Neo4j environment variables. "
+                "Please set NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD."
+            )
 
-    Raises:
-        ConnectionError: If unable to connect to Neo4j.
-        ValueError: If required environment variables are missing.
-    """
-    config = get_config()
+        try:
+            driver = GraphDatabase.driver(
+                self.config.uri,
+                auth=(self.config.username, self.config.password)
+            )
+            # Verify connection
+            driver.verify_connectivity()
+            # logger.info("Successfully connected to Neo4j at %s", self.config.uri)
+            return driver
+        except Exception as e:
+            logger.error("Failed to connect to Neo4j: %s", str(e))
+            raise ConnectionError(f"Unable to connect to Neo4j: {str(e)}") from e
 
-    if not config.validate():
-        raise ValueError(
-            "Missing required Neo4j environment variables. "
-            "Please set NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD."
-        )
+    def get_graph_store(self) -> Neo4jGraphStore:
+        """
+        Create and return a Neo4j graph store for LlamaIndex.
 
-    try:
-        graph_store = Neo4jGraphStore(
-            url=config.uri,
-            username=config.username,
-            password=config.password,
-        )
-        logger.info("Successfully connected to Neo4j graph store at %s", config.uri)
-        return graph_store
-    except Exception as e:
-        logger.error("Failed to connect to Neo4j: %s", str(e))
-        raise ConnectionError(f"Unable to connect to Neo4j: {str(e)}") from e
+        Returns:
+            Neo4jGraphStore: Connected graph store instance.
 
+        Raises:
+            ConnectionError: If unable to connect to Neo4j.
+            ValueError: If required environment variables are missing.
+        """
+        if not self.config.validate():
+            raise ValueError(
+                "Missing required Neo4j environment variables. "
+                "Please set NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD."
+            )
 
-def get_neo4j_property_graph_store() -> Neo4jPropertyGraphStore:
-    """
-    Create and return a Neo4j property graph store for LlamaIndex PropertyGraphIndex.
+        try:
+            graph_store = Neo4jGraphStore(
+                url=self.config.uri,
+                username=self.config.username,
+                password=self.config.password,
+            )
+            logger.info("Successfully connected to Neo4j graph store at %s", self.config.uri)
+            return graph_store
+        except Exception as e:
+            logger.error("Failed to connect to Neo4j: %s", str(e))
+            raise ConnectionError(f"Unable to connect to Neo4j: {str(e)}") from e
 
-    This is the newer API that supports schema-driven extraction with
-    SchemaLLMPathExtractor. Use this for structured knowledge graph extraction
-    with predefined entity and relationship types.
+    def get_property_graph_store(self) -> Neo4jPropertyGraphStore:
+        """
+        Create and return a Neo4j property graph store for LlamaIndex PropertyGraphIndex.
 
-    Returns:
-        Neo4jPropertyGraphStore: Connected property graph store instance.
+        Returns:
+            Neo4jPropertyGraphStore: Connected property graph store instance.
 
-    Raises:
-        ConnectionError: If unable to connect to Neo4j.
-        ValueError: If required environment variables are missing.
-    """
-    config = get_config()
+        Raises:
+            ConnectionError: If unable to connect to Neo4j.
+            ValueError: If required environment variables are missing.
+        """
+        if not self.config.validate():
+            raise ValueError(
+                "Missing required Neo4j environment variables. "
+                "Please set NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD."
+            )
 
-    if not config.validate():
-        raise ValueError(
-            "Missing required Neo4j environment variables. "
-            "Please set NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD."
-        )
+        try:
+            graph_store = Neo4jPropertyGraphStore(
+                url=self.config.uri,
+                username=self.config.username,
+                password=self.config.password,
+            )
+            logger.info(
+                "Successfully connected to Neo4j property graph store at %s", self.config.uri
+            )
+            return graph_store
+        except Exception as e:
+            logger.error("Failed to connect to Neo4j: %s", str(e))
+            raise ConnectionError(f"Unable to connect to Neo4j: {str(e)}") from e
 
-    try:
-        graph_store = Neo4jPropertyGraphStore(
-            url=config.uri,
-            username=config.username,
-            password=config.password,
-        )
-        logger.info(
-            "Successfully connected to Neo4j property graph store at %s", config.uri
-        )
-        return graph_store
-    except Exception as e:
-        logger.error("Failed to connect to Neo4j: %s", str(e))
-        raise ConnectionError(f"Unable to connect to Neo4j: {str(e)}") from e
+    @contextmanager
+    def session(self):
+        """
+        Context manager for Neo4j sessions.
 
+        Usage:
+            with db_manager.session() as session:
+                result = session.run("MATCH (n) RETURN n LIMIT 10")
+        """
+        driver = self.get_driver()
+        try:
+            with driver.session() as session:
+                yield session
+        finally:
+            driver.close()
 
-@contextmanager
-def neo4j_session():
-    """
-    Context manager for Neo4j sessions.
+    def execute_query(self, query: str, parameters: dict | None = None) -> list[Any]:
+        """
+        Execute a Cypher query and return results.
 
-    Usage:
-        with neo4j_session() as session:
-            result = session.run("MATCH (n) RETURN n LIMIT 10")
-    """
-    driver = get_neo4j_driver()
-    try:
-        with driver.session() as session:
-            yield session
-    finally:
-        driver.close()
+        Args:
+            query: Cypher query string.
+            parameters: Optional query parameters.
 
+        Returns:
+            List of query result records.
+        """
+        with self.session() as session:
+            result = session.run(query, parameters or {})
+            return list(result)
 
-def execute_query(query: str, parameters: dict | None = None) -> list[Any]:
-    """
-    Execute a Cypher query and return results.
+    def check_connection(self) -> tuple[bool, str]:
+        """
+        Check if Neo4j is accessible.
 
-    Args:
-        query: Cypher query string.
-        parameters: Optional query parameters.
+        Returns:
+            Tuple of (is_connected, status_message)
+        """
+        if not self.config.validate():
+            return False, "Missing Neo4j credentials in .env"
 
-    Returns:
-        List of query result records.
-    """
-    with neo4j_session() as session:
-        result = session.run(query, parameters or {})
-        return list(result)
+        try:
+            driver = self.get_driver()
+            driver.close()
+            return True, f"Connected to {self.config.uri}"
+        except Exception as e:
+            return False, f"Connection failed: {str(e)[:50]}..."
 
+    # =============================================================================
+    # DOCUMENT TRACKING FOR IDEMPOTENCY
+    # =============================================================================
 
-def check_connection() -> tuple[bool, str]:
-    """
-    Check if Neo4j is accessible.
+    def document_exists_by_hash(self, doc_hash: str) -> bool:
+        """
+        Check if a Document node with the given hash already exists.
 
-    Returns:
-        Tuple of (is_connected, status_message)
-    """
-    config = get_config()
+        Args:
+            doc_hash: SHA-256 hash of the document text content.
 
-    if not config.validate():
-        return False, "Missing Neo4j credentials in .env"
+        Returns:
+            True if a Document with this hash exists, False otherwise.
+        """
+        query = "MATCH (d:Document {hash: $hash}) RETURN d LIMIT 1"
+        results = self.execute_query(query, {"hash": doc_hash})
+        return len(results) > 0
 
-    try:
-        driver = get_neo4j_driver()
-        driver.close()
-        return True, f"Connected to {config.uri}"
-    except Exception as e:
-        return False, f"Connection failed: {str(e)[:50]}..."
+    def create_document_node(self, filename: str, doc_hash: str, ingested_at: str) -> None:
+        """
+        Create a Document node to track an ingested file.
 
-
-# =============================================================================
-# DOCUMENT TRACKING FOR IDEMPOTENCY
-# =============================================================================
-
-
-def document_exists_by_hash(doc_hash: str) -> bool:
-    """
-    Check if a Document node with the given hash already exists.
-
-    Used for idempotent ingestion - skip documents that have already
-    been processed to avoid duplicate LLM calls and graph entries.
-
-    Args:
-        doc_hash: SHA-256 hash of the document text content.
-
-    Returns:
-        True if a Document with this hash exists, False otherwise.
-    """
-    query = "MATCH (d:Document {hash: $hash}) RETURN d LIMIT 1"
-    results = execute_query(query, {"hash": doc_hash})
-    return len(results) > 0
-
-
-def create_document_node(filename: str, doc_hash: str, ingested_at: str) -> None:
-    """
-    Create a Document node to track an ingested file.
-
-    Uses MERGE to ensure idempotency - if the document already exists,
-    it will update the metadata instead of creating a duplicate.
-
-    Args:
-        filename: Original filename of the document.
-        doc_hash: SHA-256 hash of the document text content.
-        ingested_at: ISO format timestamp of ingestion.
-    """
-    query = """
-    MERGE (d:Document {hash: $hash})
-    SET d.filename = $filename, d.ingested_at = $ingested_at
-    """
-    execute_query(query, {"filename": filename, "hash": doc_hash, "ingested_at": ingested_at})
-    logger.info("Created/updated Document node for %s", filename)
+        Args:
+            filename: Original filename of the document.
+            doc_hash: SHA-256 hash of the document text content.
+            ingested_at: ISO format timestamp of ingestion.
+        """
+        query = """
+        MERGE (d:Document {hash: $hash})
+        SET d.filename = $filename, d.ingested_at = $ingested_at
+        """
+        self.execute_query(query, {"filename": filename, "hash": doc_hash, "ingested_at": ingested_at})
+        logger.info("Created/updated Document node for %s", filename)

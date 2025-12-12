@@ -34,12 +34,8 @@ from llama_index.core.indices.property_graph import SchemaLLMPathExtractor
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai import OpenAI
 
-from src.config import get_entity_literal, get_ontology, get_relation_literal
-from src.database import (
-    create_document_node,
-    document_exists_by_hash,
-    get_neo4j_property_graph_store,
-)
+from src.config import get_entity_literal, get_ontology, get_relation_literal, settings
+from src.database import GraphDatabaseManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -130,22 +126,19 @@ def preprocess_documents(documents: list[Document]) -> list[Document]:
 
 
 def build_graph_index(
+    db_manager: GraphDatabaseManager,
     data_dir: str = "data",
-    max_triplets_per_chunk: int = 10,
-    num_workers: int = 4,
-    normalize_entities: bool = True,
 ) -> PropertyGraphIndex | None:
     """
     Build a PropertyGraphIndex with schema-driven extraction.
 
     This function reads documents, optionally normalizes them, and extracts
     knowledge triplets constrained by the predefined ontology schema.
+    Configuration is loaded from src.config.settings.
 
     Args:
+        db_manager: Configured GraphDatabaseManager instance.
         data_dir: Path to the directory containing source documents.
-        max_triplets_per_chunk: Maximum triplets to extract per text chunk.
-        num_workers: Number of parallel workers for extraction.
-        normalize_entities: Whether to normalize text to Title Case.
 
     Returns:
         PropertyGraphIndex: The constructed knowledge graph index,
@@ -179,7 +172,7 @@ def build_graph_index(
         doc_hash = compute_document_hash(doc.text)
         filename = doc.metadata.get("file_name", doc.doc_id or "unknown")
 
-        if document_exists_by_hash(doc_hash):
+        if db_manager.document_exists_by_hash(doc_hash):
             logger.info("Skipping file %s, already ingested", filename)
         else:
             documents_to_process.append(doc)
@@ -201,21 +194,23 @@ def build_graph_index(
     documents = documents_to_process
 
     # Optional: Normalize document text for entity consistency
-    if normalize_entities:
+    if settings.ingestion.normalize_entities:
         logger.info("Normalizing document text for entity consistency...")
         documents = preprocess_documents(documents)
 
     # Initialize LLM and embedding model
     llm = OpenAI(
-        model="gpt-4o-mini",  # Better extraction quality than gpt-3.5-turbo
-        temperature=0,
+        model=settings.llm.model,
+        temperature=settings.llm.temperature,
+        api_base=settings.llm.api_base,
     )
     embed_model = OpenAIEmbedding(
-        model="text-embedding-3-small",
+        model=settings.embedding.model,
+        dimensions=settings.embedding.dimensions,
     )
 
     # Connect to Neo4j PropertyGraphStore (required for PropertyGraphIndex)
-    graph_store = get_neo4j_property_graph_store()
+    graph_store = db_manager.get_property_graph_store()
 
     # Load ontology from external configuration
     ontology = get_ontology()
@@ -236,16 +231,17 @@ def build_graph_index(
         possible_relations=get_relation_literal(ontology),
         kg_validation_schema=ontology.validation_schema,
         strict=True,  # CRITICAL: Reject triplets outside the schema
-        num_workers=num_workers,
-        max_triplets_per_chunk=max_triplets_per_chunk,
+        num_workers=settings.ingestion.num_workers,
+        max_triplets_per_chunk=settings.ingestion.max_triplets_per_chunk,
     )
 
     # Build the PropertyGraphIndex with schema-driven extraction
     logger.info("Building PropertyGraphIndex (this may take a while)...")
     logger.info(
-        "Settings: max_triplets=%d, workers=%d, strict=True",
-        max_triplets_per_chunk,
-        num_workers,
+        "Settings: max_triplets=%d, workers=%d, strict=True, llm=%s",
+        settings.ingestion.max_triplets_per_chunk,
+        settings.ingestion.num_workers,
+        settings.llm.model,
     )
 
     index = PropertyGraphIndex.from_documents(
@@ -263,7 +259,7 @@ def build_graph_index(
     # =========================================================================
     ingestion_time = datetime.now(timezone.utc).isoformat()
     for filename, doc_hash in document_hashes.items():
-        create_document_node(filename, doc_hash, ingestion_time)
+        db_manager.create_document_node(filename, doc_hash, ingestion_time)
 
     logger.info("Persisted %d Document nodes for tracking", len(document_hashes))
 
@@ -285,7 +281,10 @@ if __name__ == "__main__":
     print("-" * 60)
 
     try:
-        index = build_graph_index()
+        # Instantiate Database Manager
+        db_manager = GraphDatabaseManager()
+        
+        index = build_graph_index(db_manager)
 
         # Handle case where all documents were already ingested
         if index is None:
@@ -306,7 +305,10 @@ if __name__ == "__main__":
         if run_analytics.lower() == "y":
             print("\nStarting graph analytics pipeline...")
             from src.analysis import run_analysis
-
+            
+            # Note: analysis.py also needs to be updated to accept db_manager,
+            # but for now we'll assume it handles its own connection or we update it next.
+            # Ideally we pass db_manager to run_analysis too.
             result = run_analysis()
             if result.get("status") == "success":
                 print("\n✅ Graph analytics complete!")

@@ -16,6 +16,9 @@ env/
 .mypy_cache/
 .pytest_cache/
 
+# Tests
+tests/
+
 # Version Control
 .git/
 .gitignore
@@ -52,6 +55,10 @@ Thumbs.db
 .pre-commit-config.yaml
 
 # Agent/AI files
-.agent/
 CLAUDE.md
 GEMINI.md
+.agent/
+task.md
+implementation_plan.md
+walkthrough.md
+

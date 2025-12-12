@@ -22,7 +22,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
-from src.database import check_connection
+from src.database import GraphDatabaseManager
 
 # Load environment variables
 load_dotenv()
@@ -59,6 +59,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+@st.cache_resource
+def get_db_manager() -> GraphDatabaseManager:
+    """
+    Get or create the GraphDatabaseManager instance.
+    Cached to ensure a single instance across the session.
+    """
+    return GraphDatabaseManager()
+
+
 def check_openai_key() -> tuple[bool, str]:
     """
     Check if OpenAI API key is configured.
@@ -72,7 +81,7 @@ def check_openai_key() -> tuple[bool, str]:
     return False, "Missing or invalid API key"
 
 
-def check_connection_with_timeout(timeout: float = 5.0) -> tuple[bool, str]:
+def check_connection_with_timeout(db_manager: GraphDatabaseManager, timeout: float = 5.0) -> tuple[bool, str]:
     """
     Check Neo4j connection with a timeout to prevent blocking.
 
@@ -81,13 +90,14 @@ def check_connection_with_timeout(timeout: float = 5.0) -> tuple[bool, str]:
     unresponsive or slow to start.
 
     Args:
+        db_manager: The database manager instance.
         timeout: Maximum seconds to wait for connection check (default: 5.0)
 
     Returns:
         Tuple of (is_connected, status_message)
     """
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(check_connection)
+        future = executor.submit(db_manager.check_connection)
         try:
             return future.result(timeout=timeout)
         except concurrent.futures.TimeoutError:
@@ -97,13 +107,16 @@ def check_connection_with_timeout(timeout: float = 5.0) -> tuple[bool, str]:
 
 
 @st.cache_resource
-def get_cached_query_engine():
-    """Cache the query engine to avoid recreating on each interaction."""
+def get_cached_query_engine(_db_manager: GraphDatabaseManager):
+    """
+    Cache the query engine to avoid recreating on each interaction.
+    Using _db_manager to prevent Streamlit from hashing the object.
+    """
     from src.query_engine import get_query_engine
-    return get_query_engine()
+    return get_query_engine(db_manager=_db_manager)
 
 
-def render_sidebar():
+def render_sidebar(db_manager: GraphDatabaseManager):
     """Render the sidebar with configuration status."""
     st.sidebar.title("🧠 GraphRAG Demo")
     st.sidebar.markdown("---")
@@ -112,7 +125,7 @@ def render_sidebar():
     st.sidebar.subheader("📡 Connection Status")
 
     # Neo4j Status (using timeout-protected check)
-    neo4j_connected, neo4j_status = check_connection_with_timeout(timeout=5.0)
+    neo4j_connected, neo4j_status = check_connection_with_timeout(db_manager, timeout=5.0)
     if neo4j_connected:
         st.sidebar.success(f"✅ Neo4j: {neo4j_status}")
     else:
@@ -144,7 +157,7 @@ def render_sidebar():
     return neo4j_connected, openai_configured
 
 
-def render_chat_tab():
+def render_chat_tab(db_manager: GraphDatabaseManager):
     """Render the chat interface tab."""
     st.header("💬 Chat with Knowledge Graph")
     st.markdown("Ask questions about your data. The system uses graph-based retrieval for better context.")
@@ -171,7 +184,7 @@ def render_chat_tab():
         with st.chat_message("assistant"):
             with st.spinner("🔍 Querying knowledge graph..."):
                 from src.query_engine import query
-                engine = get_cached_query_engine()
+                engine = get_cached_query_engine(db_manager)
                 # The query function now returns user-friendly error messages
                 # instead of raising exceptions
                 response_text = query(prompt, engine)
@@ -188,7 +201,7 @@ def render_chat_tab():
             st.rerun()
 
 
-def render_graph_tab():
+def render_graph_tab(db_manager: GraphDatabaseManager):
     """Render the graph explorer tab."""
     st.header("📊 Knowledge Graph Explorer")
     st.markdown("Interactive visualization of the knowledge graph stored in Neo4j.")
@@ -221,6 +234,7 @@ def render_graph_tab():
                 from src.visualizer import generate_graph_html
                 # generate_graph_html now returns HTML string directly (no disk I/O)
                 st.session_state[cache_key] = generate_graph_html(
+                    db_manager=db_manager,
                     height="650px",
                     limit=node_limit,
                 )
@@ -252,8 +266,11 @@ def render_graph_tab():
 
 def main():
     """Main application entry point."""
+    # Initialize Database Manager
+    db_manager = get_db_manager()
+
     # Render sidebar and get connection status
-    neo4j_connected, openai_configured = render_sidebar()
+    neo4j_connected, openai_configured = render_sidebar(db_manager)
 
     # Main content area with tabs
     tab_chat, tab_graph = st.tabs(["💬 Chat", "📊 Graph Explorer"])
@@ -269,14 +286,14 @@ def main():
             4. Run ingestion: `python src/ingestion.py`
             """)
         else:
-            render_chat_tab()
+            render_chat_tab(db_manager)
 
     with tab_graph:
         if not neo4j_connected:
             st.warning("⚠️ Please start Neo4j to view the graph visualization.")
             st.code("docker compose up -d", language="bash")
         else:
-            render_graph_tab()
+            render_graph_tab(db_manager)
 
 
 if __name__ == "__main__":

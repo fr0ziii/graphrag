@@ -33,7 +33,6 @@ env/
 
 # uv
 .python-version
-uv.lock
 
 # IDEs
 .idea/
@@ -55,6 +54,9 @@ uv.lock
 htmlcov/
 .tox/
 .nox/
+
+# Linting
+.ruff_cache/
 
 # Logs
 *.log

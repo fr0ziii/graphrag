@@ -20,7 +20,8 @@ from llama_index.llms.openai import OpenAI
 from neo4j.exceptions import ServiceUnavailable
 from openai import RateLimitError
 
-from src.database import get_neo4j_graph_store
+from src.config import settings
+from src.database import GraphDatabaseManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +32,7 @@ load_dotenv()
 
 
 def get_query_engine(
+    db_manager: GraphDatabaseManager | None = None,
     response_mode: str = "tree_summarize",
     verbose: bool = False,
 ) -> BaseQueryEngine:
@@ -41,6 +43,7 @@ def get_query_engine(
     knowledge graph and reconstructs the index without re-ingesting documents.
 
     Args:
+        db_manager: Configured GraphDatabaseManager instance. If None, a new one is created.
         response_mode: The response synthesis mode. Options include:
             - "tree_summarize": Recursively summarizes chunks (best for context)
             - "compact": Compact the chunks and synthesize
@@ -54,17 +57,22 @@ def get_query_engine(
         ConnectionError: If unable to connect to Neo4j.
         RuntimeError: If the knowledge graph is empty or not initialized.
     """
+    if db_manager is None:
+        db_manager = GraphDatabaseManager()
+
     # Initialize LLM and embedding model
     llm = OpenAI(
-        model="gpt-3.5-turbo",
-        temperature=0.1,
+        model=settings.llm.model,
+        temperature=settings.llm.temperature,
+        api_base=settings.llm.api_base,
     )
     embed_model = OpenAIEmbedding(
-        model="text-embedding-3-small",
+        model=settings.embedding.model,
+        dimensions=settings.embedding.dimensions,
     )
 
     # Connect to Neo4j using shared database module
-    graph_store = get_neo4j_graph_store()
+    graph_store = db_manager.get_graph_store()
 
     # Create storage context from existing graph store
     storage_context = StorageContext.from_defaults(graph_store=graph_store)
@@ -91,7 +99,11 @@ def get_query_engine(
     return query_engine
 
 
-def query(question: str, engine: BaseQueryEngine | None = None) -> str:
+def query(
+    question: str,
+    engine: BaseQueryEngine | None = None,
+    db_manager: GraphDatabaseManager | None = None,
+) -> str:
     """
     Query the knowledge graph with a natural language question.
 
@@ -103,13 +115,14 @@ def query(question: str, engine: BaseQueryEngine | None = None) -> str:
     Args:
         question: The question to ask.
         engine: Optional pre-initialized query engine. If None, creates a new one.
+        db_manager: Optional GraphDatabaseManager to create engine if engine is None.
 
     Returns:
         str: The generated response, or a user-friendly error message on failure.
     """
     try:
         if engine is None:
-            engine = get_query_engine()
+            engine = get_query_engine(db_manager=db_manager)
 
         logger.info("Processing query: %s", question)
         response = engine.query(question)
@@ -140,7 +153,11 @@ def query(question: str, engine: BaseQueryEngine | None = None) -> str:
         return f"❌ **Query Failed**\n\nAn unexpected error occurred: {str(e)}"
 
 
-async def async_query(question: str, engine: BaseQueryEngine | None = None) -> str:
+async def async_query(
+    question: str,
+    engine: BaseQueryEngine | None = None,
+    db_manager: GraphDatabaseManager | None = None,
+) -> str:
     """
     Asynchronously query the knowledge graph with a natural language question.
 
@@ -151,6 +168,7 @@ async def async_query(question: str, engine: BaseQueryEngine | None = None) -> s
     Args:
         question: The question to ask.
         engine: Optional pre-initialized query engine. If None, creates a new one.
+        db_manager: Optional GraphDatabaseManager to create engine if engine is None.
 
     Returns:
         str: The generated response, or a user-friendly error message on failure.
@@ -162,7 +180,7 @@ async def async_query(question: str, engine: BaseQueryEngine | None = None) -> s
     """
     try:
         if engine is None:
-            engine = get_query_engine()
+            engine = get_query_engine(db_manager=db_manager)
 
         logger.info("Processing async query: %s", question)
         response = await engine.aquery(question)
