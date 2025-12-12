@@ -13,7 +13,7 @@ This project is a production-ready implementation of **GraphRAG** (Retrieval-Aug
 
 ## Architecture
 The system follows a standard RAG pipeline enhanced with Knowledge Graph capabilities:
-1.  **Ingestion:** Documents in `data/` are processed by LlamaIndex to extract entities and relationships, which are stored in Neo4j.
+1.  **Ingestion:** Documents in `data/` are processed by LlamaIndex to extract entities and relationships, which are stored in Neo4j. **Idempotent:** Each document's SHA-256 hash is stored as a `Document` node; re-running ingestion skips already-processed files.
 2.  **Storage:** Neo4j serves as the Graph Store.
 3.  **Querying:** A Query Engine uses "Tree Summarize" to traverse the graph and retrieve context for user queries.
 4.  **Interface:** A Streamlit app provides a Chat UI and an interactive Graph Explorer (using Pyvis).

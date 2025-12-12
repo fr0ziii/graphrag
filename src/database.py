@@ -198,3 +198,46 @@ def check_connection() -> tuple[bool, str]:
         return True, f"Connected to {config.uri}"
     except Exception as e:
         return False, f"Connection failed: {str(e)[:50]}..."
+
+
+# =============================================================================
+# DOCUMENT TRACKING FOR IDEMPOTENCY
+# =============================================================================
+
+
+def document_exists_by_hash(doc_hash: str) -> bool:
+    """
+    Check if a Document node with the given hash already exists.
+
+    Used for idempotent ingestion - skip documents that have already
+    been processed to avoid duplicate LLM calls and graph entries.
+
+    Args:
+        doc_hash: SHA-256 hash of the document text content.
+
+    Returns:
+        True if a Document with this hash exists, False otherwise.
+    """
+    query = "MATCH (d:Document {hash: $hash}) RETURN d LIMIT 1"
+    results = execute_query(query, {"hash": doc_hash})
+    return len(results) > 0
+
+
+def create_document_node(filename: str, doc_hash: str, ingested_at: str) -> None:
+    """
+    Create a Document node to track an ingested file.
+
+    Uses MERGE to ensure idempotency - if the document already exists,
+    it will update the metadata instead of creating a duplicate.
+
+    Args:
+        filename: Original filename of the document.
+        doc_hash: SHA-256 hash of the document text content.
+        ingested_at: ISO format timestamp of ingestion.
+    """
+    query = """
+    MERGE (d:Document {hash: $hash})
+    SET d.filename = $filename, d.ingested_at = $ingested_at
+    """
+    execute_query(query, {"filename": filename, "hash": doc_hash, "ingested_at": ingested_at})
+    logger.info("Created/updated Document node for %s", filename)

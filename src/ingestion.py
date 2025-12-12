@@ -22,8 +22,10 @@ SCHEMA ENFORCEMENT STRATEGY:
    Title Case, reducing duplicates like "solar energy" vs "Solar Energy".
 """
 
+import hashlib
 import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -33,7 +35,11 @@ from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai import OpenAI
 
 from src.config import get_entity_literal, get_ontology, get_relation_literal
-from src.database import get_neo4j_property_graph_store
+from src.database import (
+    create_document_node,
+    document_exists_by_hash,
+    get_neo4j_property_graph_store,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -41,6 +47,27 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+
+# =============================================================================
+# DOCUMENT HASHING FOR IDEMPOTENCY
+# =============================================================================
+
+
+def compute_document_hash(text: str) -> str:
+    """
+    Compute SHA-256 hash of document text content.
+
+    Used to uniquely identify documents for idempotent ingestion.
+    Documents with the same text content will produce the same hash.
+
+    Args:
+        text: Document text content.
+
+    Returns:
+        Hexadecimal SHA-256 hash string.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 # =============================================================================
@@ -107,7 +134,7 @@ def build_graph_index(
     max_triplets_per_chunk: int = 10,
     num_workers: int = 4,
     normalize_entities: bool = True,
-) -> PropertyGraphIndex:
+) -> PropertyGraphIndex | None:
     """
     Build a PropertyGraphIndex with schema-driven extraction.
 
@@ -121,7 +148,8 @@ def build_graph_index(
         normalize_entities: Whether to normalize text to Title Case.
 
     Returns:
-        PropertyGraphIndex: The constructed knowledge graph index.
+        PropertyGraphIndex: The constructed knowledge graph index,
+            or None if all documents were already ingested.
 
     Raises:
         FileNotFoundError: If the data directory doesn't exist or is empty.
@@ -139,6 +167,38 @@ def build_graph_index(
         raise FileNotFoundError(f"No documents found in {data_dir}")
 
     logger.info("Loaded %d document(s)", len(documents))
+
+    # =========================================================================
+    # IDEMPOTENCY CHECK: Skip documents that have already been ingested
+    # =========================================================================
+    documents_to_process = []
+    document_hashes: dict[str, str] = {}  # filename -> hash mapping for persistence
+
+    for doc in documents:
+        # Compute hash from original text (before normalization)
+        doc_hash = compute_document_hash(doc.text)
+        filename = doc.metadata.get("file_name", doc.doc_id or "unknown")
+
+        if document_exists_by_hash(doc_hash):
+            logger.info("Skipping file %s, already ingested", filename)
+        else:
+            documents_to_process.append(doc)
+            document_hashes[filename] = doc_hash
+
+    # Early return if all documents were already ingested
+    if not documents_to_process:
+        logger.info("All %d document(s) already ingested. Nothing to do.", len(documents))
+        # Return None to signal no new processing was done
+        return None
+
+    logger.info(
+        "Processing %d new document(s) (%d skipped)",
+        len(documents_to_process),
+        len(documents) - len(documents_to_process),
+    )
+
+    # Use filtered list for further processing
+    documents = documents_to_process
 
     # Optional: Normalize document text for entity consistency
     if normalize_entities:
@@ -197,6 +257,16 @@ def build_graph_index(
     )
 
     logger.info("PropertyGraphIndex built successfully with schema enforcement!")
+
+    # =========================================================================
+    # PERSIST DOCUMENT NODES: Track ingested documents for idempotency
+    # =========================================================================
+    ingestion_time = datetime.now(timezone.utc).isoformat()
+    for filename, doc_hash in document_hashes.items():
+        create_document_node(filename, doc_hash, ingestion_time)
+
+    logger.info("Persisted %d Document nodes for tracking", len(document_hashes))
+
     return index
 
 
@@ -216,8 +286,14 @@ if __name__ == "__main__":
 
     try:
         index = build_graph_index()
-        print("\n✅ Ingestion complete! Schema-enforced knowledge graph is ready.")
-        print("   Explore it at http://localhost:7474")
+
+        # Handle case where all documents were already ingested
+        if index is None:
+            print("\n✅ All documents already ingested. No new processing needed.")
+            print("   Run with a fresh database to re-ingest.")
+        else:
+            print("\n✅ Ingestion complete! Schema-enforced knowledge graph is ready.")
+            print("   Explore it at http://localhost:7474")
         print("\nVerification queries to run in Neo4j Browser:")
         print("  MATCH (n) RETURN DISTINCT labels(n) AS entity_types")
         print("  MATCH ()-[r]->() RETURN DISTINCT type(r) AS relation_types")
