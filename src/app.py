@@ -3,8 +3,14 @@ Streamlit Application for GraphRAG Demo.
 
 This application provides a chat interface to query the knowledge graph
 and a visualization explorer to interact with the graph structure.
+
+Features:
+- Non-blocking UI with timeout-protected connection checks
+- In-memory graph visualization (no temp files)
+- Graceful error handling for external service failures
 """
 
+import concurrent.futures
 import os
 import sys
 from pathlib import Path
@@ -66,6 +72,30 @@ def check_openai_key() -> tuple[bool, str]:
     return False, "Missing or invalid API key"
 
 
+def check_connection_with_timeout(timeout: float = 5.0) -> tuple[bool, str]:
+    """
+    Check Neo4j connection with a timeout to prevent blocking.
+
+    This function wraps the database connection check in a ThreadPoolExecutor
+    to ensure the main thread is not blocked indefinitely if Neo4j is
+    unresponsive or slow to start.
+
+    Args:
+        timeout: Maximum seconds to wait for connection check (default: 5.0)
+
+    Returns:
+        Tuple of (is_connected, status_message)
+    """
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(check_connection)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            return False, f"Connection timed out after {timeout}s"
+        except Exception as e:
+            return False, f"Connection check failed: {str(e)[:50]}"
+
+
 @st.cache_resource
 def get_cached_query_engine():
     """Cache the query engine to avoid recreating on each interaction."""
@@ -81,8 +111,8 @@ def render_sidebar():
     # Connection Status Section
     st.sidebar.subheader("📡 Connection Status")
 
-    # Neo4j Status (using shared database module)
-    neo4j_connected, neo4j_status = check_connection()
+    # Neo4j Status (using timeout-protected check)
+    neo4j_connected, neo4j_status = check_connection_with_timeout(timeout=5.0)
     if neo4j_connected:
         st.sidebar.success(f"✅ Neo4j: {neo4j_status}")
     else:
@@ -137,15 +167,14 @@ def render_chat_tab():
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Generate response
+        # Generate response using query function with built-in error handling
         with st.chat_message("assistant"):
-            with st.spinner("Querying knowledge graph..."):
-                try:
-                    engine = get_cached_query_engine()
-                    response = engine.query(prompt)
-                    response_text = str(response)
-                except Exception as e:
-                    response_text = f"❌ Error: {str(e)}\n\nPlease ensure Neo4j is running and the knowledge graph has been populated."
+            with st.spinner("🔍 Querying knowledge graph..."):
+                from src.query_engine import query
+                engine = get_cached_query_engine()
+                # The query function now returns user-friendly error messages
+                # instead of raising exceptions
+                response_text = query(prompt, engine)
 
             st.markdown(response_text)
 
@@ -169,7 +198,10 @@ def render_graph_tab():
 
     with col1:
         if st.button("🔄 Refresh Graph"):
-            st.session_state.pop("graph_html", None)
+            # Clear all cached graph HTML keys
+            keys_to_remove = [k for k in st.session_state if k.startswith("graph_html_")]
+            for key in keys_to_remove:
+                st.session_state.pop(key, None)
             st.rerun()
 
     with col2:
@@ -180,23 +212,24 @@ def render_graph_tab():
             help="Limit the number of relationships to display for performance.",
         )
 
-    # Generate or use cached graph HTML
+    # Generate or use cached graph HTML (in-memory, no temp files)
     cache_key = f"graph_html_{node_limit}"
 
     if cache_key not in st.session_state:
-        with st.spinner("Loading graph visualization..."):
+        with st.spinner("🔄 Generating graph visualization..."):
             try:
                 from src.visualizer import generate_graph_html
+                # generate_graph_html now returns HTML string directly (no disk I/O)
                 st.session_state[cache_key] = generate_graph_html(
                     height="650px",
                     limit=node_limit,
                 )
             except Exception as e:
                 st.error(f"Failed to load graph: {str(e)}")
-                st.info("Make sure Neo4j is running and the knowledge graph has been populated using `python src/ingestion.py`")
+                st.info("Make sure Neo4j is running and the knowledge graph has been populated using `python -m src.ingestion`")
                 return
 
-    # Display the graph
+    # Display the graph (HTML string rendered via components.html)
     components.html(
         st.session_state[cache_key],
         height=700,

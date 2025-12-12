@@ -3,10 +3,11 @@ Graph Visualizer module for rendering Neo4j data with Pyvis.
 
 This module provides functionality to extract graph data from Neo4j
 and generate interactive HTML visualizations using Pyvis.
+
+Note: All HTML generation is performed in-memory without disk I/O.
 """
 
 import logging
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -232,22 +233,14 @@ def generate_graph_html(
             label=edge.get("label", ""),
         )
 
-    # Generate HTML
-    # Use a temporary file to get the HTML content
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
-        temp_path = f.name
+    # Generate HTML string directly in memory (no disk I/O)
+    html_content = net.generate_html()
 
-    try:
-        net.save_graph(temp_path)
-        html_content = Path(temp_path).read_text(encoding="utf-8")
-    finally:
-        # Clean up temp file
-        temp_file = Path(temp_path)
-        if temp_file.exists():
-            temp_file.unlink()
-
-    logger.info("Generated graph visualization with %d nodes and %d edges",
-               len(graph_data["nodes"]), len(graph_data["edges"]))
+    logger.info(
+        "Generated graph visualization with %d nodes and %d edges",
+        len(graph_data["nodes"]),
+        len(graph_data["edges"]),
+    )
 
     return html_content
 

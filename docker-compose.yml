@@ -1,24 +1,65 @@
 services:
+  # =========================================================================
+  # Neo4j Graph Database
+  # =========================================================================
   neo4j:
     image: neo4j:5-community
     container_name: graphrag-neo4j
     ports:
-      - "7474:7474"  # HTTP browser interface
-      - "7687:7687"  # Bolt protocol
+      - "7474:7474" # HTTP browser interface
+      - "7687:7687" # Bolt protocol
     environment:
       - NEO4J_AUTH=${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-password}
       - NEO4J_PLUGINS=["apoc"]
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
+    networks:
+      - graphrag-network
     restart: on-failure
     healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "${NEO4J_USERNAME:-neo4j}", "-p", "${NEO4J_PASSWORD:-password}", "RETURN 1"]
+      test: [ "CMD", "cypher-shell", "-u", "${NEO4J_USERNAME:-neo4j}", "-p", "${NEO4J_PASSWORD:-password}", "RETURN 1" ]
       interval: 10s
       timeout: 10s
       retries: 5
       start_period: 30s
 
+  # =========================================================================
+  # GraphRAG Streamlit Application
+  # =========================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: graphrag-app
+    ports:
+      - "8501:8501" # Streamlit UI
+    environment:
+      # Use container service name for Neo4j connection
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      # Mount data directory for document persistence
+      - ./data:/app/data:ro
+    networks:
+      - graphrag-network
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    restart: on-failure
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  graphrag-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
 volumes:
   neo4j_data:
   neo4j_logs:

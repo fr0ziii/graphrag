@@ -3,6 +3,11 @@ Query Engine module for loading and querying the Knowledge Graph.
 
 This module provides functionality to connect to an existing Knowledge Graph
 in Neo4j and create a query engine for answering questions.
+
+Features:
+- Async query support via LlamaIndex's aquery() method
+- Robust error handling for Neo4j and OpenAI failures
+- User-friendly error messages for common failure modes
 """
 
 import logging
@@ -12,6 +17,8 @@ from llama_index.core import KnowledgeGraphIndex, StorageContext
 from llama_index.core.query_engine import BaseQueryEngine
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai import OpenAI
+from neo4j.exceptions import ServiceUnavailable
+from openai import RateLimitError
 
 from src.database import get_neo4j_graph_store
 
@@ -88,20 +95,102 @@ def query(question: str, engine: BaseQueryEngine | None = None) -> str:
     """
     Query the knowledge graph with a natural language question.
 
+    This function includes robust error handling for common failure modes:
+    - Neo4j connection issues (ServiceUnavailable)
+    - OpenAI rate limiting (RateLimitError)
+    - General exceptions
+
     Args:
         question: The question to ask.
         engine: Optional pre-initialized query engine. If None, creates a new one.
 
     Returns:
-        str: The generated response from the knowledge graph.
+        str: The generated response, or a user-friendly error message on failure.
     """
-    if engine is None:
-        engine = get_query_engine()
+    try:
+        if engine is None:
+            engine = get_query_engine()
 
-    logger.info("Processing query: %s", question)
-    response = engine.query(question)
+        logger.info("Processing query: %s", question)
+        response = engine.query(question)
+        return str(response)
 
-    return str(response)
+    except ServiceUnavailable as e:
+        logger.error("Neo4j connection lost: %s", str(e))
+        return (
+            "⚠️ **Database Connection Lost**\n\n"
+            "Unable to reach the Neo4j database. Please ensure:\n"
+            "1. Neo4j is running: `docker compose up -d`\n"
+            "2. The database has finished starting (wait ~30 seconds)\n"
+            "3. Check connection settings in `.env`"
+        )
+
+    except RateLimitError as e:
+        logger.error("OpenAI rate limit exceeded: %s", str(e))
+        return (
+            "⚠️ **Rate Limit Exceeded**\n\n"
+            "OpenAI API rate limit reached. Please:\n"
+            "1. Wait a moment before trying again\n"
+            "2. Check your API quota at https://platform.openai.com/usage\n"
+            "3. Consider upgrading your OpenAI plan if this persists"
+        )
+
+    except Exception as e:
+        logger.error("Query failed with unexpected error: %s", str(e))
+        return f"❌ **Query Failed**\n\nAn unexpected error occurred: {str(e)}"
+
+
+async def async_query(question: str, engine: BaseQueryEngine | None = None) -> str:
+    """
+    Asynchronously query the knowledge graph with a natural language question.
+
+    Uses LlamaIndex's native async support via `aquery()` for non-blocking
+    operations. This is ideal for use in async web frameworks or when
+    concurrent queries are needed.
+
+    Args:
+        question: The question to ask.
+        engine: Optional pre-initialized query engine. If None, creates a new one.
+
+    Returns:
+        str: The generated response, or a user-friendly error message on failure.
+
+    Note:
+        The query engine creation (`get_query_engine()`) is still synchronous
+        as LlamaIndex's KnowledgeGraphIndex doesn't support async initialization.
+        For best performance, create the engine once and pass it to this function.
+    """
+    try:
+        if engine is None:
+            engine = get_query_engine()
+
+        logger.info("Processing async query: %s", question)
+        response = await engine.aquery(question)
+        return str(response)
+
+    except ServiceUnavailable as e:
+        logger.error("Neo4j connection lost: %s", str(e))
+        return (
+            "⚠️ **Database Connection Lost**\n\n"
+            "Unable to reach the Neo4j database. Please ensure:\n"
+            "1. Neo4j is running: `docker compose up -d`\n"
+            "2. The database has finished starting (wait ~30 seconds)\n"
+            "3. Check connection settings in `.env`"
+        )
+
+    except RateLimitError as e:
+        logger.error("OpenAI rate limit exceeded: %s", str(e))
+        return (
+            "⚠️ **Rate Limit Exceeded**\n\n"
+            "OpenAI API rate limit reached. Please:\n"
+            "1. Wait a moment before trying again\n"
+            "2. Check your API quota at https://platform.openai.com/usage\n"
+            "3. Consider upgrading your OpenAI plan if this persists"
+        )
+
+    except Exception as e:
+        logger.error("Async query failed with unexpected error: %s", str(e))
+        return f"❌ **Query Failed**\n\nAn unexpected error occurred: {str(e)}"
 
 
 if __name__ == "__main__":
