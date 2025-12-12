@@ -1,0 +1,19 @@
+[project]
+name = "simple-graphrag-demo"
+version = "0.1.0"
+description = "GraphRAG demo using LlamaIndex, Neo4j, and Streamlit"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "llama-index>=0.11.0",
+    "llama-index-graph-stores-neo4j>=0.3.0",
+    "llama-index-llms-openai>=0.2.0",
+    "llama-index-embeddings-openai>=0.2.0",
+    "neo4j>=5.0.0",
+    "streamlit>=1.28.0",
+    "pyvis>=0.3.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.uv]
+dev-dependencies = []
