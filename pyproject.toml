@@ -16,4 +16,27 @@ dependencies = [
 ]
 
 [tool.uv]
-dev-dependencies = []
+dev-dependencies = [
+    "ruff>=0.8.0",
+    "pre-commit>=4.0.0",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+# Reglas estrictas: pyflakes, pycodestyle, isort, flake8-bugbear, pyupgrade, bandit, comprehensions, pathlib
+select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "PTH"]
+# Evitar reglas que entran en conflicto con el formatter
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Ignorar imports no usados en __init__.py
+"__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

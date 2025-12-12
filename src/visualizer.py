@@ -5,10 +5,10 @@ This module provides functionality to extract graph data from Neo4j
 and generate interactive HTML visualizations using Pyvis.
 """
 
-import os
 import logging
-from typing import Dict, Any
 import tempfile
+from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from pyvis.network import Network
@@ -23,13 +23,13 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-def fetch_graph_data(limit: int = 100) -> Dict[str, Any]:
+def fetch_graph_data(limit: int = 100) -> dict[str, Any]:
     """
     Fetch nodes and relationships from Neo4j.
-    
+
     Args:
         limit: Maximum number of relationships to fetch.
-        
+
     Returns:
         Dictionary containing nodes and edges data.
     """
@@ -39,13 +39,13 @@ def fetch_graph_data(limit: int = 100) -> Dict[str, Any]:
     RETURN n, r, m
     LIMIT $limit
     """
-    
+
     nodes = {}
     edges = []
-    
+
     try:
         results = execute_query(query, {"limit": limit})
-        
+
         for record in results:
             # Extract source node
             source = record["n"]
@@ -61,7 +61,7 @@ def fetch_graph_data(limit: int = 100) -> Dict[str, Any]:
                     "title": f"{label}: {name}",
                     "group": label,
                 }
-            
+
             # Extract target node
             target = record["m"]
             target_id = str(target.element_id)
@@ -75,7 +75,7 @@ def fetch_graph_data(limit: int = 100) -> Dict[str, Any]:
                     "title": f"{label}: {name}",
                     "group": label,
                 }
-            
+
             # Extract relationship
             rel = record["r"]
             edges.append({
@@ -84,14 +84,14 @@ def fetch_graph_data(limit: int = 100) -> Dict[str, Any]:
                 "label": rel.type,
                 "title": rel.type,
             })
-        
+
         logger.info("Fetched %d nodes and %d edges from Neo4j",
                    len(nodes), len(edges))
-    
+
     except Exception as e:
         logger.error("Failed to fetch graph data: %s", str(e))
         raise
-    
+
     return {"nodes": list(nodes.values()), "edges": edges}
 
 
@@ -104,20 +104,20 @@ def generate_graph_html(
 ) -> str:
     """
     Generate an interactive HTML visualization of the knowledge graph.
-    
+
     Args:
         height: Height of the visualization canvas.
         width: Width of the visualization canvas.
         bgcolor: Background color of the graph.
         font_color: Color of node labels.
         limit: Maximum number of relationships to display.
-        
+
     Returns:
         str: HTML string containing the interactive graph visualization.
     """
     # Fetch graph data
     graph_data = fetch_graph_data(limit=limit)
-    
+
     if not graph_data["nodes"]:
         return """
         <div style="
@@ -135,7 +135,7 @@ def generate_graph_html(
             </div>
         </div>
         """
-    
+
     # Create Pyvis network
     net = Network(
         height=height,
@@ -146,7 +146,7 @@ def generate_graph_html(
         notebook=False,
         cdn_resources="remote",
     )
-    
+
     # Configure physics for better visualization
     net.set_options("""
     {
@@ -197,32 +197,32 @@ def generate_graph_html(
         }
     }
     """)
-    
+
     # Color palette for different node groups
     colors = [
         "#ff6b6b", "#4ecdc4", "#45b7d1", "#96ceb4",
         "#ffeaa7", "#dfe6e9", "#fd79a8", "#00b894",
         "#6c5ce7", "#fdcb6e", "#e17055", "#74b9ff",
     ]
-    
+
     # Track groups for color assignment
     groups = {}
     color_index = 0
-    
+
     # Add nodes
     for node in graph_data["nodes"]:
         group = node.get("group", "default")
         if group not in groups:
             groups[group] = colors[color_index % len(colors)]
             color_index += 1
-        
+
         net.add_node(
             node["id"],
             label=node["label"],
             title=node.get("title", node["label"]),
             color=groups[group],
         )
-    
+
     # Add edges
     for edge in graph_data["edges"]:
         net.add_edge(
@@ -231,24 +231,24 @@ def generate_graph_html(
             title=edge.get("title", ""),
             label=edge.get("label", ""),
         )
-    
+
     # Generate HTML
     # Use a temporary file to get the HTML content
     with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
         temp_path = f.name
-    
+
     try:
         net.save_graph(temp_path)
-        with open(temp_path, "r", encoding="utf-8") as f:
-            html_content = f.read()
+        html_content = Path(temp_path).read_text(encoding="utf-8")
     finally:
         # Clean up temp file
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-    
+        temp_file = Path(temp_path)
+        if temp_file.exists():
+            temp_file.unlink()
+
     logger.info("Generated graph visualization with %d nodes and %d edges",
                len(graph_data["nodes"]), len(graph_data["edges"]))
-    
+
     return html_content
 
 
@@ -257,18 +257,17 @@ if __name__ == "__main__":
     print("=" * 60)
     print("GraphRAG Visualizer Test")
     print("=" * 60)
-    
+
     try:
         html = generate_graph_html()
-        
+
         # Save to file for testing
-        output_path = "test_graph.html"
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(html)
-        
+        output_path = Path("test_graph.html")
+        output_path.write_text(html, encoding="utf-8")
+
         print(f"\n✅ Graph visualization saved to {output_path}")
         print("   Open this file in a browser to view the graph.")
-        
+
     except Exception as e:
         print(f"\n❌ Error: {e}")
         raise
