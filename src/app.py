@@ -12,11 +12,10 @@ Features:
 
 import concurrent.futures
 import os
-import sys
-from pathlib import Path
 
-# Add project root to Python path for Streamlit compatibility
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Note: Project root integration is handled by installing the package in editable mode
+# pip install -e .
+
 
 import streamlit as st
 import streamlit.components.v1 as components

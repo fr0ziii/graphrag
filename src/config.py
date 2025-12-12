@@ -21,7 +21,14 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Configure logging
@@ -128,8 +135,7 @@ def load_ontology(path: str | Path = DEFAULT_ONTOLOGY_PATH) -> OntologyConfig:
             raw_config = yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise OntologyConfigError(
-            f"Invalid YAML format in ontology configuration: {path}\n"
-            f"YAML Error: {e}"
+            f"Invalid YAML format in ontology configuration: {path}\nYAML Error: {e}"
         ) from e
 
     if raw_config is None:
@@ -142,7 +148,11 @@ def load_ontology(path: str | Path = DEFAULT_ONTOLOGY_PATH) -> OntologyConfig:
             f"Invalid ontology configuration in {path}:\n{e}"
         ) from e
 
-    logger.info("Loaded ontology configuration for domain: %s (v%s)", config.domain, config.version)
+    logger.info(
+        "Loaded ontology configuration for domain: %s (v%s)",
+        config.domain,
+        config.version,
+    )
 
     return config
 
@@ -203,23 +213,63 @@ class LLMConfig(BaseModel):
 
     model: str = Field(default="gpt-4o-mini", description="OpenAI model identifier")
     temperature: float = Field(default=0.0, description="Sampling temperature")
-    api_key: SecretStr | None = Field(default=None, description="OpenAI API Key provided implicitly via env")
+    api_key: SecretStr | None = Field(
+        default=None, description="OpenAI API Key provided implicitly via env"
+    )
     api_base: str | None = Field(default=None, description="Custom API base URL")
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, v: SecretStr | None) -> SecretStr | None:
+        """Validate API key format for OpenAI compatibility."""
+        if v is None:
+            return v
+        key_value = v.get_secret_value()
+        if not key_value:
+            raise ValueError("API key cannot be empty if provided")
+        if not key_value.startswith("sk-"):
+            raise ValueError(
+                "OpenAI API key must start with 'sk-'. "
+                "Please check your OPENAI_API_KEY or GRAPHRAG_LLM__API_KEY environment variable."
+            )
+        return v
+
+    @field_validator("api_base")
+    @classmethod
+    def validate_api_base(cls, v: str | None) -> str | None:
+        """Validate API base URL structure."""
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError(
+                f"api_base must be a valid URL starting with 'http://' or 'https://'. Got: '{v}'"
+            )
+        return v
 
 
 class EmbeddingConfig(BaseModel):
     """Configuration for Embedding Models."""
 
-    model: str = Field(default="text-embedding-3-small", description="OpenAI embedding model identifier")
+    model: str = Field(
+        default="text-embedding-3-small",
+        description="OpenAI embedding model identifier",
+    )
     dimensions: int | None = Field(default=1536, description="Embedding dimensions")
 
 
 class IngestionConfig(BaseModel):
     """Configuration for the Ingestion Pipeline."""
 
-    max_triplets_per_chunk: int = Field(default=10, description="Max triplets to extract per chunk")
+    max_triplets_per_chunk: int = Field(
+        default=10, description="Max triplets to extract per chunk"
+    )
     num_workers: int = Field(default=4, description="Parallel workers for extraction")
-    normalize_entities: bool = Field(default=True, description="Whether to normalize entities to title case")
+    normalize_entities: bool = Field(
+        default=True, description="Whether to normalize entities to title case"
+    )
 
 
 class Settings(BaseSettings):

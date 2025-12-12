@@ -4,8 +4,9 @@ Integration tests for GraphRAG knowledge graph building.
 These tests use testcontainers to spin up ephemeral Neo4j instances.
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 @pytest.mark.integration
@@ -21,7 +22,7 @@ class TestGraphIntegration:
             assert result.single()["value"] == 1
 
     def test_document_ingestion_creates_nodes(
-        self, neo4j_container, neo4j_driver, clean_neo4j, tmp_path: Path
+        self, neo4j_container, neo4j_driver, db_manager, clean_neo4j, tmp_path: Path
     ):
         """
         Test that ingesting a document creates expected nodes in Neo4j.
@@ -43,12 +44,7 @@ class TestGraphIntegration:
 
         # Build the graph (this uses the env vars set by neo4j_container fixture)
         try:
-            index = build_graph_index(
-                data_dir=str(tmp_path),
-                max_triplets_per_chunk=5,
-                num_workers=1,
-                normalize_entities=True,
-            )
+            build_graph_index(db_manager, data_dir=str(tmp_path))
         except Exception as e:
             # Skip if OpenAI API is not configured
             if "OPENAI_API_KEY" in str(e) or "api_key" in str(e).lower():
@@ -63,7 +59,7 @@ class TestGraphIntegration:
             assert node_count > 0, "Expected at least one node to be created"
 
     def test_graph_has_relationships(
-        self, neo4j_container, neo4j_driver, clean_neo4j, tmp_path: Path
+        self, neo4j_container, neo4j_driver, db_manager, clean_neo4j, tmp_path: Path
     ):
         """
         Test that ingested documents create relationships, not just nodes.
@@ -80,11 +76,7 @@ class TestGraphIntegration:
         from src.ingestion import build_graph_index
 
         try:
-            build_graph_index(
-                data_dir=str(tmp_path),
-                max_triplets_per_chunk=5,
-                num_workers=1,
-            )
+            build_graph_index(db_manager, data_dir=str(tmp_path))
         except Exception as e:
             if "OPENAI_API_KEY" in str(e) or "api_key" in str(e).lower():
                 pytest.skip("OpenAI API key not configured for integration test")
@@ -103,38 +95,33 @@ class TestDocumentTracking:
     """Integration tests for document tracking (idempotency)."""
 
     def test_document_exists_by_hash_returns_false_for_nonexistent(
-        self, neo4j_container, neo4j_driver, clean_neo4j
+        self, neo4j_container, neo4j_driver, db_manager, clean_neo4j
     ):
         """Test that document_exists_by_hash returns False when hash doesn't exist."""
-        from src.database import document_exists_by_hash
-
-        result = document_exists_by_hash("nonexistent_hash_12345")
+        result = db_manager.document_exists_by_hash("nonexistent_hash_12345")
         assert result is False
 
     def test_create_document_node_and_verify(
-        self, neo4j_container, neo4j_driver, clean_neo4j
+        self, neo4j_container, neo4j_driver, db_manager, clean_neo4j
     ):
         """Test creating a Document node and verifying it exists."""
-        from src.database import create_document_node, document_exists_by_hash
-
         test_hash = "abc123def456"
         test_filename = "test_document.txt"
         test_timestamp = "2025-01-01T00:00:00Z"
 
         # Initially should not exist
-        assert document_exists_by_hash(test_hash) is False
+        assert db_manager.document_exists_by_hash(test_hash) is False
 
         # Create the document node
-        create_document_node(test_filename, test_hash, test_timestamp)
+        db_manager.create_document_node(test_filename, test_hash, test_timestamp)
 
         # Now should exist
-        assert document_exists_by_hash(test_hash) is True
+        assert db_manager.document_exists_by_hash(test_hash) is True
 
         # Verify properties in Neo4j
         with neo4j_driver.session() as session:
             result = session.run(
-                "MATCH (d:Document {hash: $hash}) RETURN d",
-                {"hash": test_hash}
+                "MATCH (d:Document {hash: $hash}) RETURN d", {"hash": test_hash}
             )
             record = result.single()
             assert record is not None
@@ -143,22 +130,20 @@ class TestDocumentTracking:
             assert doc_node["ingested_at"] == test_timestamp
 
     def test_create_document_node_is_idempotent(
-        self, neo4j_container, neo4j_driver, clean_neo4j
+        self, neo4j_container, neo4j_driver, db_manager, clean_neo4j
     ):
         """Test that creating same document twice doesn't create duplicates."""
-        from src.database import create_document_node
-
         test_hash = "unique_hash_xyz"
 
         # Create twice
-        create_document_node("file.txt", test_hash, "2025-01-01T00:00:00Z")
-        create_document_node("file.txt", test_hash, "2025-01-02T00:00:00Z")
+        db_manager.create_document_node("file.txt", test_hash, "2025-01-01T00:00:00Z")
+        db_manager.create_document_node("file.txt", test_hash, "2025-01-02T00:00:00Z")
 
         # Should only have one node
         with neo4j_driver.session() as session:
             result = session.run(
                 "MATCH (d:Document {hash: $hash}) RETURN count(d) as count",
-                {"hash": test_hash}
+                {"hash": test_hash},
             )
             count = result.single()["count"]
             assert count == 1

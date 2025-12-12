@@ -16,27 +16,28 @@ def neo4j_container():
 
     Uses module scope to reuse the container across tests in the same file,
     improving test execution speed.
-    
+
     Note: Uses neo4j image with APOC plugin enabled, which is required
     by LlamaIndex's Neo4jPropertyGraphStore.
     """
     # Use Neo4j with APOC plugin enabled
-    neo4j = Neo4jContainer("neo4j:5.15.0")
-    
+    # Note: Neo4j 5.24+ required for CALL subquery syntax used by llama-index-graph-stores-neo4j
+    neo4j = Neo4jContainer("neo4j:5.26.0")
+
     # Enable APOC plugin (required by LlamaIndex Neo4j integration)
     neo4j.with_env("NEO4J_PLUGINS", '["apoc"]')
     neo4j.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*")
     neo4j.with_env("NEO4J_dbms_security_procedures_allowlist", "apoc.*")
-    
+
     neo4j.start()
-    
+
     # Set environment variables for the test session
     os.environ["NEO4J_URI"] = neo4j.get_connection_url()
     os.environ["NEO4J_USERNAME"] = "neo4j"
     os.environ["NEO4J_PASSWORD"] = neo4j.password
-    
+
     yield neo4j
-    
+
     neo4j.stop()
 
 
@@ -61,3 +62,14 @@ def clean_neo4j(neo4j_driver):
     with neo4j_driver.session() as session:
         session.run("MATCH (n) DETACH DELETE n")
 
+
+@pytest.fixture
+def db_manager(neo4j_container):
+    """
+    Provide a GraphDatabaseManager connected to the test container.
+
+    Uses the environment variables set by neo4j_container fixture.
+    """
+    from src.database import GraphDatabaseManager
+
+    return GraphDatabaseManager()

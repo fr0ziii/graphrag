@@ -183,6 +183,33 @@ Building this project involved several iterations. Here's what we learned:
 
 ---
 
+## ⚠️ Limitations & Trade-offs
+
+To verify "Agency" (ownership, self-awareness, and forward-thinking), we must acknowledge where this demo falls short of a production system.
+
+### 1. Synchronous Blocking Ingestion
+Currently, `src/ingestion.py` processes documents sequentially in the main thread.
+- **Impact**: The process is blocking and unable to utilize multiple cores or machines.
+- **Production Path**: A production version would offload ingestion to a distributed job queue (e.g., **Celery** or **Redis Queue**). The API would return a `job_id` immediately, allowing the client to poll for progress while workers process document chunks in parallel.
+
+### 2. "Strict Mode" Trade-off (Precision vs. Recall)
+We enforce a rigid ontology using `SchemaLLMPathExtractor(strict=True)`.
+- **The Trade-off**: We sacrifice **Recall** (capturing every possible relationship) for **Precision** (ensuring the graph is clean and queryable).
+- **Consequence**: Nuanced relationships that don't fit the pre-defined `VALIDATION_SCHEMA` come ignored.
+- **Alternative**: A "Soft Mode" could flag non-conforming triplets for human review instead of discarding them, but this increases operational complexity.
+
+---
+
+## 🔮 Future Roadmap
+
+The following steps define the path from "Prototype" to "Product":
+
+- [ ] **Refactor to REST API**: Isolate core logic into a **FastAPI** service. The Streamlit app should become a dumb client that simply consumes these endpoints.
+- [ ] **Async Ingestion Pipeline**: Implement the event-driven architecture (Celery/Redis) mentioned above.
+- [ ] **CI/CD with Testcontainers**: Add GitHub Actions that spin up ephemeral Neo4j containers to run integration tests on every pull request.
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites

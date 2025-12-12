@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
+VALID_NEO4J_SCHEMES = (
+    "bolt://",
+    "bolt+s://",
+    "bolt+ssc://",
+    "neo4j://",
+    "neo4j+s://",
+    "neo4j+ssc://",
+)
+
+
 class Neo4jConfig:
     """Configuration for Neo4j connection."""
 
@@ -29,6 +39,17 @@ class Neo4jConfig:
         self.uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         self.username = os.getenv("NEO4J_USERNAME", "neo4j")
         self.password = os.getenv("NEO4J_PASSWORD", "password")
+        self._validate_uri_format()
+
+    def _validate_uri_format(self) -> None:
+        """Validate that NEO4J_URI has a valid scheme. Raises ValueError if invalid."""
+        if not self.uri:
+            raise ValueError("NEO4J_URI cannot be empty")
+        if not any(self.uri.startswith(scheme) for scheme in VALID_NEO4J_SCHEMES):
+            raise ValueError(
+                f"NEO4J_URI must start with a valid scheme: {', '.join(VALID_NEO4J_SCHEMES)}. "
+                f"Got: '{self.uri}'"
+            )
 
     def validate(self) -> bool:
         """Check if all required configuration is present."""
@@ -71,8 +92,7 @@ class GraphDatabaseManager:
 
         try:
             driver = GraphDatabase.driver(
-                self.config.uri,
-                auth=(self.config.username, self.config.password)
+                self.config.uri, auth=(self.config.username, self.config.password)
             )
             # Verify connection
             driver.verify_connectivity()
@@ -105,7 +125,9 @@ class GraphDatabaseManager:
                 username=self.config.username,
                 password=self.config.password,
             )
-            logger.info("Successfully connected to Neo4j graph store at %s", self.config.uri)
+            logger.info(
+                "Successfully connected to Neo4j graph store at %s", self.config.uri
+            )
             return graph_store
         except Exception as e:
             logger.error("Failed to connect to Neo4j: %s", str(e))
@@ -135,7 +157,8 @@ class GraphDatabaseManager:
                 password=self.config.password,
             )
             logger.info(
-                "Successfully connected to Neo4j property graph store at %s", self.config.uri
+                "Successfully connected to Neo4j property graph store at %s",
+                self.config.uri,
             )
             return graph_store
         except Exception as e:
@@ -208,7 +231,9 @@ class GraphDatabaseManager:
         results = self.execute_query(query, {"hash": doc_hash})
         return len(results) > 0
 
-    def create_document_node(self, filename: str, doc_hash: str, ingested_at: str) -> None:
+    def create_document_node(
+        self, filename: str, doc_hash: str, ingested_at: str
+    ) -> None:
         """
         Create a Document node to track an ingested file.
 
@@ -221,5 +246,7 @@ class GraphDatabaseManager:
         MERGE (d:Document {hash: $hash})
         SET d.filename = $filename, d.ingested_at = $ingested_at
         """
-        self.execute_query(query, {"filename": filename, "hash": doc_hash, "ingested_at": ingested_at})
+        self.execute_query(
+            query, {"filename": filename, "hash": doc_hash, "ingested_at": ingested_at}
+        )
         logger.info("Created/updated Document node for %s", filename)
